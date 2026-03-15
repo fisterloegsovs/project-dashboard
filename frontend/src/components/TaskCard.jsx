@@ -18,7 +18,7 @@ const STATUS_LABELS = {
   completed: "Reopen",
 };
 
-export default function TaskCard({ task, project, onUpdate, onDelete, onPushToGitHub, githubConnected }) {
+export default function TaskCard({ task, project, onUpdate, onDelete, onPushToGitHub, githubConnected, canModify }) {
   const [pushing, setPushing] = useState(false);
 
   const handlePush = async () => {
@@ -55,30 +55,45 @@ export default function TaskCard({ task, project, onUpdate, onDelete, onPushToGi
             </a>
           )}
         </div>
-        <button
-          className="task-delete"
-          title="Delete task"
-          onClick={() => onDelete(task.id)}
-        >
-          &times;
-        </button>
+        {canModify && (
+          <button
+            className="task-delete"
+            title="Delete task"
+            onClick={() => onDelete(task.id)}
+          >
+            &times;
+          </button>
+        )}
       </div>
       <h4 className="task-title">{task.title}</h4>
       {task.description && (
         <p className="task-desc">{task.description}</p>
       )}
       <div className="task-card-bottom">
-        {project && (
-          <span className="task-project">
-            <span
-              className="project-dot-sm"
-              style={{ backgroundColor: project.color }}
-            />
-            {project.name}
-          </span>
-        )}
+        <div className="task-card-meta">
+          {project && (
+            <span className="task-project">
+              <span
+                className="project-dot-sm"
+                style={{ backgroundColor: project.color }}
+              />
+              {project.name}
+            </span>
+          )}
+          {task.assignee && (
+            <span className="task-assignee" title={`Assigned to ${task.assignee.display_name}`}>
+              <span
+                className="assignee-dot"
+                style={{ backgroundColor: task.assignee.avatar_color }}
+              >
+                {(task.assignee.display_name || task.assignee.username)[0].toUpperCase()}
+              </span>
+              {task.assignee.display_name}
+            </span>
+          )}
+        </div>
         <div className="task-card-actions">
-          {githubConnected && !task.github_issue_url && (
+          {githubConnected && !task.github_issue_url && canModify && (
             <button
               className="btn btn-sm btn-gh-push"
               onClick={handlePush}
@@ -91,14 +106,16 @@ export default function TaskCard({ task, project, onUpdate, onDelete, onPushToGi
               {pushing ? "..." : "Push"}
             </button>
           )}
-          <button
-            className="btn btn-sm"
-            onClick={() =>
-              onUpdate(task.id, { status: NEXT_STATUS[task.status] })
-            }
-          >
-            {STATUS_LABELS[task.status]}
-          </button>
+          {canModify && (
+            <button
+              className="btn btn-sm"
+              onClick={() =>
+                onUpdate(task.id, { status: NEXT_STATUS[task.status] })
+              }
+            >
+              {STATUS_LABELS[task.status]}
+            </button>
+          )}
         </div>
       </div>
     </div>

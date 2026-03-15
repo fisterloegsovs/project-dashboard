@@ -6,7 +6,7 @@ const COLUMNS = [
   { key: "completed", label: "Completed", color: "#10b981" },
 ];
 
-export default function ProjectBoard({ tasks, projects, onUpdate, onDelete, onPushToGitHub, githubConnected }) {
+export default function ProjectBoard({ tasks, projects, onUpdate, onDelete, onPushToGitHub, githubConnected, canModify }) {
   const projectMap = Object.fromEntries(projects.map((p) => [p.id, p]));
 
   return (
@@ -36,6 +36,7 @@ export default function ProjectBoard({ tasks, projects, onUpdate, onDelete, onPu
                   onDelete={onDelete}
                   onPushToGitHub={onPushToGitHub}
                   githubConnected={githubConnected}
+                  canModify={canModify}
                 />
               ))}
             </div>

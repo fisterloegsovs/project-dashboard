@@ -1,21 +1,32 @@
 import { useState, useEffect, useCallback } from "react";
 import { api } from "./api";
+import { useAuth } from "./context/AuthContext";
+import AuthPage from "./components/AuthPage";
 import Sidebar from "./components/Sidebar";
 import StatsBar from "./components/StatsBar";
 import ProjectBoard from "./components/ProjectBoard";
 import TaskModal from "./components/TaskModal";
 import ProjectModal from "./components/ProjectModal";
 import GitHubModal from "./components/GitHubModal";
+import TeamModal from "./components/TeamModal";
+import VideoCallModal from "./components/VideoCallModal";
 
 export default function App() {
+  const { user, loading: authLoading, canModify } = useAuth();
+
   const [projects, setProjects] = useState([]);
   const [tasks, setTasks] = useState([]);
   const [stats, setStats] = useState(null);
   const [selectedProject, setSelectedProject] = useState(null);
+  const [selectedTeam, setSelectedTeam] = useState(null);
   const [showTaskModal, setShowTaskModal] = useState(false);
   const [showProjectModal, setShowProjectModal] = useState(false);
   const [showGitHubModal, setShowGitHubModal] = useState(false);
+  const [showTeamModal, setShowTeamModal] = useState(false);
+  const [editingTeam, setEditingTeam] = useState(null);
   const [githubStatus, setGithubStatus] = useState(null);
+  const [activeCalls, setActiveCalls] = useState([]);
+  const [activeCall, setActiveCall] = useState(null);
   const [loading, setLoading] = useState(true);
   const [theme, setTheme] = useState(() => localStorage.getItem("theme") || "dark");
 
@@ -26,19 +37,17 @@ export default function App() {
 
   const toggleTheme = () => setTheme((t) => (t === "dark" ? "light" : "dark"));
 
-  // Handle GitHub OAuth callback — the callback redirects to /github/callback?code=...
+  // Handle GitHub OAuth callback
   useEffect(() => {
     const path = window.location.pathname;
     const params = new URLSearchParams(window.location.search);
     if (path === "/github/callback" && params.get("code")) {
-      // Forward the code to the backend
       fetch(`/api/github/callback?code=${params.get("code")}&state=${params.get("state") || ""}`)
         .then((r) => {
           if (!r.ok) throw new Error(`GitHub callback failed: ${r.status}`);
           return r.json();
         })
         .then(() => {
-          // Clean URL and refresh GitHub status
           window.history.replaceState({}, "", "/");
           refreshGitHubStatus();
           setShowGitHubModal(true);
@@ -59,12 +68,21 @@ export default function App() {
     }
   }, []);
 
+  const refreshCalls = useCallback(async () => {
+    try {
+      const calls = await api.getCalls(selectedTeam);
+      setActiveCalls(calls);
+    } catch {
+      setActiveCalls([]);
+    }
+  }, [selectedTeam]);
+
   const refresh = useCallback(async () => {
     try {
       const [p, t, s] = await Promise.all([
-        api.getProjects(),
-        api.getTasks(selectedProject),
-        api.getStats(),
+        api.getProjects(selectedTeam),
+        api.getTasks(selectedProject, selectedTeam),
+        api.getStats(selectedTeam),
       ]);
       setProjects(p);
       setTasks(t);
@@ -74,15 +92,30 @@ export default function App() {
     } finally {
       setLoading(false);
     }
-  }, [selectedProject]);
+  }, [selectedProject, selectedTeam]);
 
   useEffect(() => {
-    refresh();
-    refreshGitHubStatus();
-  }, [refresh, refreshGitHubStatus]);
+    if (user) {
+      refresh();
+      refreshGitHubStatus();
+      refreshCalls();
+    }
+  }, [user, refresh, refreshGitHubStatus, refreshCalls]);
+
+  // Auto-select first team
+  useEffect(() => {
+    if (user?.teams?.length > 0 && !selectedTeam) {
+      setSelectedTeam(user.teams[0].id);
+    }
+  }, [user?.teams, selectedTeam]);
 
   const handleSelectProject = (id) => {
     setSelectedProject(id === selectedProject ? null : id);
+  };
+
+  const handleSelectTeam = (id) => {
+    setSelectedTeam(id);
+    setSelectedProject(null);
   };
 
   const handleTaskCreate = async (data) => {
@@ -116,7 +149,7 @@ export default function App() {
 
   const handleProjectCreate = async (data) => {
     try {
-      await api.createProject(data);
+      await api.createProject({ ...data, team_id: selectedTeam });
       setShowProjectModal(false);
       refresh();
     } catch (e) {
@@ -144,6 +177,44 @@ export default function App() {
     }
   };
 
+  const handleStartCall = async () => {
+    try {
+      const call = await api.createCall({ team_id: selectedTeam });
+      setActiveCall(call);
+      refreshCalls();
+    } catch (e) {
+      alert(`Failed to start call: ${e.message}`);
+    }
+  };
+
+  const handleJoinCall = (call) => {
+    setActiveCall(call);
+  };
+
+  const handleCloseCall = () => {
+    setActiveCall(null);
+    refreshCalls();
+  };
+
+  const handleOpenTeamModal = (team) => {
+    setEditingTeam(team || null);
+    setShowTeamModal(true);
+  };
+
+  // Show auth page if not logged in
+  if (authLoading) {
+    return (
+      <div className="loading-screen">
+        <div className="loading-spinner" />
+        <p>Loading...</p>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <AuthPage />;
+  }
+
   if (loading) {
     return (
       <div className="loading-screen">
@@ -152,6 +223,9 @@ export default function App() {
       </div>
     );
   }
+
+  const currentTeamRole = user.teams?.find((t) => t.id === selectedTeam)?.role;
+  const userCanModify = canModify(selectedTeam);
 
   return (
     <div className="app">
@@ -165,6 +239,13 @@ export default function App() {
         onToggleTheme={toggleTheme}
         onOpenGitHub={() => setShowGitHubModal(true)}
         githubStatus={githubStatus}
+        teams={user.teams || []}
+        selectedTeam={selectedTeam}
+        onSelectTeam={handleSelectTeam}
+        onOpenTeamModal={handleOpenTeamModal}
+        onStartCall={handleStartCall}
+        activeCalls={activeCalls}
+        onJoinCall={handleJoinCall}
       />
       <main className="main">
         <header className="main-header">
@@ -179,14 +260,19 @@ export default function App() {
               {selectedProject
                 ? projects.find((p) => p.id === selectedProject)?.description
                 : "Overview of all your work"}
+              {currentTeamRole && (
+                <span className="header-role-badge">{currentTeamRole}</span>
+              )}
             </p>
           </div>
-          <button
-            className="btn btn-primary"
-            onClick={() => setShowTaskModal(true)}
-          >
-            <span className="btn-icon">+</span> New Task
-          </button>
+          {userCanModify && (
+            <button
+              className="btn btn-primary"
+              onClick={() => setShowTaskModal(true)}
+            >
+              <span className="btn-icon">+</span> New Task
+            </button>
+          )}
         </header>
 
         {stats && <StatsBar stats={stats} />}
@@ -198,6 +284,7 @@ export default function App() {
           onDelete={handleTaskDelete}
           onPushToGitHub={handlePushToGitHub}
           githubConnected={githubStatus?.connected && !!githubStatus?.selected_repo}
+          canModify={userCanModify}
         />
       </main>
 
@@ -205,6 +292,7 @@ export default function App() {
         <TaskModal
           projects={projects}
           defaultProject={selectedProject}
+          teamId={selectedTeam}
           onSave={handleTaskCreate}
           onClose={() => setShowTaskModal(false)}
         />
@@ -221,6 +309,24 @@ export default function App() {
         <GitHubModal
           onClose={() => setShowGitHubModal(false)}
           onStatusChange={refreshGitHubStatus}
+        />
+      )}
+
+      {showTeamModal && (
+        <TeamModal
+          team={editingTeam}
+          onClose={() => {
+            setShowTeamModal(false);
+            setEditingTeam(null);
+          }}
+          onSaved={refresh}
+        />
+      )}
+
+      {activeCall && (
+        <VideoCallModal
+          call={activeCall}
+          onClose={handleCloseCall}
         />
       )}
     </div>

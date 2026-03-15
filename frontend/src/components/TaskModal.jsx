@@ -1,15 +1,30 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { api } from "../api";
 
-export default function TaskModal({ projects, defaultProject, onSave, onClose }) {
+export default function TaskModal({ projects, defaultProject, teamId, onSave, onClose }) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [priority, setPriority] = useState("medium");
   const [projectId, setProjectId] = useState(defaultProject || projects[0]?.id || "");
+  const [assignedTo, setAssignedTo] = useState("");
+  const [users, setUsers] = useState([]);
+
+  useEffect(() => {
+    if (teamId) {
+      api.getUsers("", teamId).then(setUsers).catch(() => {});
+    }
+  }, [teamId]);
 
   const handleSubmit = (e) => {
     e.preventDefault();
     if (!title.trim() || !projectId) return;
-    onSave({ title: title.trim(), description, priority, project_id: projectId });
+    onSave({
+      title: title.trim(),
+      description,
+      priority,
+      project_id: projectId,
+      assigned_to: assignedTo || null,
+    });
   };
 
   return (
@@ -66,6 +81,22 @@ export default function TaskModal({ projects, defaultProject, onSave, onClose })
               </select>
             </label>
           </div>
+          {users.length > 0 && (
+            <label className="field">
+              <span>Assign To</span>
+              <select
+                value={assignedTo}
+                onChange={(e) => setAssignedTo(e.target.value ? Number(e.target.value) : "")}
+              >
+                <option value="">Unassigned</option>
+                {users.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.display_name} (@{u.username})
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           <div className="modal-actions">
             <button type="button" className="btn btn-ghost" onClick={onClose}>
               Cancel
